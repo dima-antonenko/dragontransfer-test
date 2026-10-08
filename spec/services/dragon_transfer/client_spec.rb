@@ -119,7 +119,43 @@ RSpec.describe DragonTransfer::Client do
     context 'when Faraday raises' do
       before { allow(connection).to receive(:post).and_raise(Faraday::TimeoutError.new('timeout')) }
 
-      it { expect { result }.to raise_error(DragonTransfer::Error, /Не удалось связаться с DragonTransfer/) }
+      it 'retries an idempotent call and hides the exception class', :aggregate_failures do
+        expect { result }.to raise_error(DragonTransfer::Error, 'Не удалось связаться с DragonTransfer. Попробуйте ещё раз.')
+        expect(connection).to have_received(:post).twice
+      end
+    end
+
+    context 'when the TLS handshake fails once' do
+      before do
+        calls = 0
+        allow(connection).to receive(:post) do |&block|
+          block&.call(request)
+          calls += 1
+          raise Faraday::ConnectionFailed, 'Net::OpenTimeout' if calls == 1
+
+          faraday_response
+        end
+      end
+
+      it 'opens a new connection and returns the payload' do
+        expect(result).to eq(payload)
+      end
+    end
+
+    context 'with a gateway HTML response that then succeeds' do
+      let(:gateway_response) do
+        instance_double(Faraday::Response, success?: false, status: 502, body: '<!DOCTYPE html>Bad Gateway')
+      end
+
+      before do
+        responses = [ gateway_response, faraday_response ]
+        allow(connection).to receive(:post) do |&block|
+          block&.call(request)
+          responses.shift
+        end
+      end
+
+      it { is_expected.to eq(payload) }
     end
   end
 
@@ -139,6 +175,30 @@ RSpec.describe DragonTransfer::Client do
     it 'compacts nils and casts amount' do
       result
       expect(request).to have_received(:body=).with(hash_including(email: 'a@b.c', amount: 5000))
+    end
+
+    context 'when the partner times out after the request is sent' do
+      before { allow(connection).to receive(:post).and_raise(Faraday::TimeoutError.new('timeout')) }
+
+      it 'does not repeat order creation', :aggregate_failures do
+        expect { result }.to raise_error(DragonTransfer::Error, /Не удалось связаться с DragonTransfer/)
+        expect(connection).to have_received(:post).once
+      end
+    end
+
+    context 'when the connection fails before the request is sent' do
+      before do
+        calls = 0
+        allow(connection).to receive(:post) do |&block|
+          block&.call(request)
+          calls += 1
+          raise Faraday::ConnectionFailed, 'Net::OpenTimeout' if calls == 1
+
+          faraday_response
+        end
+      end
+
+      it { is_expected.to eq(payload) }
     end
   end
 

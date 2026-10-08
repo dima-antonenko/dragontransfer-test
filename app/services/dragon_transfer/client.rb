@@ -1,5 +1,13 @@
 module DragonTransfer
   class Client
+    # TLS до CDN иногда не успевает за open_timeout, хотя соседний запрос проходит.
+    # Повтор открывает новое соединение. Создание заявки повторяем только если
+    # запрос точно не ушёл (обрыв до ответа), чтобы не создать дубль.
+    MAX_ATTEMPTS = 2
+    GATEWAY_STATUSES = [ 502, 503, 504 ].freeze
+
+    class GatewayError < StandardError; end
+
     def initialize(base_url: DragonTransfer.config.base_url, api_key: DragonTransfer.config.api_key, http_client: Faraday)
       @base_url = base_url.to_s.chomp("/")
       @api_key = api_key
@@ -9,33 +17,59 @@ module DragonTransfer
     def precalc(amount:, fee_value: nil)
       body = { amount: json_amount(amount) }
       body[:fee_value] = fee_value unless fee_value.nil?
-      post("/api/partners/orders/precalc", body)
+      post("/api/partners/orders/precalc", body, idempotent: true)
     end
 
     def rate
-      post("/api/partners/orders/rate", {})
+      post("/api/partners/orders/rate", {}, idempotent: true)
     end
 
     def create(params)
       body = params.compact
       body[:amount] = json_amount(body[:amount]) if body[:amount]
-      post("/api/partners/orders/create", body)
+      post("/api/partners/orders/create", body, idempotent: false)
     end
 
     def find(id:)
-      post("/api/partners/orders/find", { id: id })
+      post("/api/partners/orders/find", { id: id }, idempotent: true)
     end
 
     private
 
-    def post(path, body)
-      response = connection.post(path) do |request|
-        request.headers["X-Api-Key"] = @api_key
-        request.body = body
+    def post(path, body, idempotent:)
+      attempts = 0
+
+      begin
+        attempts += 1
+        response = connection.post(path) do |request|
+          request.headers["X-Api-Key"] = @api_key
+          request.body = body
+        end
+        raise GatewayError, "HTTP #{response.status}" if gateway_response?(response)
+
+        parse_response(response)
+      rescue Faraday::ConnectionFailed => e
+        retry if attempts < MAX_ATTEMPTS
+        raise network_error(e)
+      rescue GatewayError, Faraday::TimeoutError => e
+        retry if idempotent && attempts < MAX_ATTEMPTS
+        raise network_error(e)
+      rescue Faraday::Error => e
+        raise network_error(e)
       end
-      parse_response(response)
-    rescue Faraday::Error => e
-      raise Error.new("Не удалось связаться с DragonTransfer: #{e.message}", code: "network_error", http_status: 502)
+    end
+
+    def gateway_response?(response)
+      GATEWAY_STATUSES.include?(response.status.to_i)
+    end
+
+    def network_error(error)
+      Rails.logger.warn("[DragonTransfer] #{error.class}: #{error.message}")
+      Error.new(
+        "Не удалось связаться с DragonTransfer. Попробуйте ещё раз.",
+        code: "network_error",
+        http_status: 502
+      )
     end
 
     def parse_response(response)
