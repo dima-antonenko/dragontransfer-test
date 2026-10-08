@@ -1,0 +1,78 @@
+<% order = local_assigns[:order] %>
+
+<main
+  class="app"
+  id="miniapp"
+  data-order-id="<%= order&.id %>"
+  data-order="<%= ERB::Util.html_escape(order ? order.as_api_json.to_json : "") %>"
+>
+  <header class="hero">
+    <p class="eyebrow">DragonTransfer</p>
+    <h1>Покупка USDT за рубли</h1>
+    <p class="lead">Сеть TRC20. Курс и сумма к зачислению считаются через Partner API.</p>
+  </header>
+
+  <section class="card" id="quote-card">
+    <h2>Сумма покупки</h2>
+    <label>
+      Сумма в рублях
+      <input id="amount" name="amount" inputmode="decimal" placeholder="5000" value="5000" autocomplete="off">
+    </label>
+    <p class="quote" id="quote">Введите сумму, чтобы увидеть, сколько USDT вы получите.</p>
+    <p class="rate" id="rate"></p>
+    <p class="error" id="quote-error" hidden></p>
+  </section>
+
+  <section class="card" id="form-card">
+    <h2>Данные для заявки</h2>
+    <form id="order-form">
+      <label>
+        ФИО
+        <input id="full_name" name="full_name" required autocomplete="name" placeholder="Иван Иванов Иванович">
+      </label>
+      <label>
+        Email
+        <input id="email" name="email" type="email" required autocomplete="email" placeholder="ivan@example.com">
+      </label>
+      <label>
+        Телефон
+        <input id="phone_number" name="phone_number" required inputmode="tel" placeholder="79990000000">
+      </label>
+      <label>
+        Кошелёк USDT TRC20
+        <input id="address" name="address" required spellcheck="false" placeholder="T...">
+      </label>
+      <button type="submit" id="submit-btn">Создать заявку</button>
+      <p class="error" id="form-error" hidden></p>
+    </form>
+  </section>
+
+  <section class="card" id="status-card" hidden>
+    <h2>Статус заявки</h2>
+    <p class="status-line"><span id="status-badge"></span></p>
+    <dl class="facts">
+      <div>
+        <dt>К оплате</dt>
+        <dd id="fact-payin">—</dd>
+      </div>
+      <div>
+        <dt>К зачислению</dt>
+        <dd id="fact-payout">—</dd>
+      </div>
+      <div>
+        <dt>Курс</dt>
+        <dd id="fact-rate">—</dd>
+      </div>
+      <div>
+        <dt>Кошелёк</dt>
+        <dd id="fact-address" class="mono">—</dd>
+      </div>
+    </dl>
+    <p class="error" id="status-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="kyc-btn" hidden>Пройти верификацию</button>
+      <button type="button" id="pay-btn" hidden>Перейти к оплате</button>
+      <button type="button" class="secondary" id="refresh-btn">Обновить статус</button>
+    </div>
+  </section>
+</main>

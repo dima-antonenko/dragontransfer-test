@@ -1,0 +1,30 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+
+development:
+  <<: *default
+  url: <%= ENV["DATABASE_URL"] %>
+  database: <%= ENV.fetch("POSTGRES_DB", "dragontransfer_development") %>
+  username: <%= ENV.fetch("POSTGRES_USER", "dragontransfer") %>
+  password: <%= ENV.fetch("POSTGRES_PASSWORD", "dragontransfer") %>
+  host: <%= ENV.fetch("POSTGRES_HOST", "localhost") %>
+  port: <%= ENV.fetch("POSTGRES_PORT", 5432) %>
+
+test:
+  <<: *default
+  database: dragontransfer_test
+  username: <%= ENV.fetch("POSTGRES_USER", "dragontransfer") %>
+  password: <%= ENV.fetch("POSTGRES_PASSWORD", "dragontransfer") %>
+  host: <%= ENV.fetch("POSTGRES_HOST", "localhost") %>
+  port: <%= ENV.fetch("POSTGRES_PORT", 5432) %>
+
+production:
+  <<: *default
+  url: <%= ENV["DATABASE_URL"] %>
+  database: dragontransfer_production
+  username: <%= ENV.fetch("POSTGRES_USER", "dragontransfer") %>
+  password: <%= ENV["DRAGONTRANSFER_DATABASE_PASSWORD"] || ENV["POSTGRES_PASSWORD"] %>
+  host: <%= ENV.fetch("POSTGRES_HOST", "localhost") %>
+  port: <%= ENV.fetch("POSTGRES_PORT", 5432) %>

@@ -1,0 +1,118 @@
+# DragonTransfer Mini App — Cursor Rules
+
+> Подробности разложены по файлам в корне репозитория:
+> `ARCHITECTURE.md`, `DECISIONS.md`, `CONVENTIONS.md`, `ANTI_PATTERNS.md`.
+> Этот файл — единая точка входа для агента.
+
+## Что это за проект
+
+Telegram Mini App и обычный сайт для покупки **USDT (TRC20) за рубли**
+через DragonTransfer Partner API.
+
+Это **не Telegram-бот**. Бот, webhook Bot API и handlers на первом этапе
+не входят в продукт. Telegram — оболочка Mini App (`telegram-web-app.js`):
+тема и необязательный `telegram_user_id`. Приложение должно работать в браузере
+без бота.
+
+Ключ партнёра (`DRAGONTRANSFER_API_KEY`) живёт только на сервере.
+Браузер ходит в свой Rails API, Rails — в Partner API.
+
+---
+
+## Стек
+
+| Слой | Технология |
+|------|------------|
+| Ruby / Rails | 3.4.1 / ~> 8.1.4 |
+| БД | PostgreSQL 16, integer PK, jsonb `raw_payload` |
+| HTTP-клиент | Faraday (`DragonTransfer::Client`) |
+| UI | ERB + vanilla JS (`app/javascript/miniapp.js`) + `telegram-web-app.js` |
+| Assets | Propshaft, importmap (Stimulus/Turbo — каркас Rails, бизнес-UI на них не завязан) |
+| Конфиг | dotenv (`DRAGONTRANSFER_*`, `APP_HOST`, `DATABASE_URL`) |
+| Deploy | Kamal + Docker + Thruster/Puma |
+| Тесты | RSpec + FactoryBot + Shoulda + WebMock + SimpleCov |
+| Стиль | rubocop-rails-omakase |
+| CI | Brakeman, bundler-audit, importmap audit, RuboCop, RSpec |
+| Часовой пояс | `Europe/Moscow` |
+
+Нет и не добавлять без явной задачи: Sidekiq/Redis, Devise, Pundit/CanCanCan,
+Blueprinter, Action Cable бизнес-каналов, Telegram Bot API, пользовательские аккаунты.
+
+---
+
+## Структура слоёв
+
+```
+Browser / Mini App
+  → Controllers (Home, Orders, Api::*, Webhooks::*)
+       → Services::*#call
+            → Order
+            → DragonTransfer::Client  →  Partner API
+  ← JSON (API)  |  ERB + miniapp.js (HTML)
+```
+
+Правило: **вся бизнес-логика в services**. Контроллеры тонкие.
+HTTP к партнёру — только в `DragonTransfer::Client`.
+HTML и JSON вызывают одни и те же services.
+
+Ключевые пути:
+
+- `app/services/` — сценарии и клиент партнёра
+- `app/models/order.rb` — заявка, статусы, применение payload
+- `app/controllers/api/` — JSON для Mini App
+- `app/controllers/webhooks/` — входящий webhook партнёра
+- `app/javascript/miniapp.js` — форма, расчёт, опрос статуса
+- `config/routes.rb`, `config/deploy.yml`, `db/schema.rb`
+
+---
+
+## Домен в двух словах
+
+Одна модель — `Order`. Локальный `id` (integer) и `external_id` (UUID партнёра)
+разные идентификаторы. Валютная пара фиксирована: RUB → USDT TRC20.
+
+Статус только растёт по `Order::STATUS_RANK`. Финальные: `SUCCESS`, `ERROR`.
+Откат статуса из webhook или `orders/find` игнорируется.
+
+Подробности потоков — в `ARCHITECTURE.md`. Почему так — в `DECISIONS.md`.
+
+---
+
+## Код-стиль для агента
+
+1. Новую логику — через service с `#call` и `BaseService`, не в контроллер и не в callback модели.
+2. Новый вызов Partner API — метод `DragonTransfer::Client`, не `Faraday` в сервисе сценария.
+3. В сервисы, которые ходят к партнёру, передавать `client:` (по умолчанию `DragonTransfer::Client`). В спеках — `instance_double`.
+4. Суммы считать через `BigDecimal`, в БД и JSON хранить строкой. `Float` для денег не использовать.
+5. `DRAGONTRANSFER_API_KEY` не отдавать во фронт, не логировать, не хардкодить. Сравнение ключа webhook — `DragonTransfer.valid_api_key?`.
+6. `telegram_user_id` — необязательная метка с клиента. Это не аутентификация и не проверка `initData`.
+7. Не добавлять Telegram-бота (webhook Bot API, handlers, inline).
+8. Пользовательские тексты ошибок — на русском, в формате `{ error, code, request_id }`.
+9. Тесты — RSpec (`spec/`), не Minitest. Стиль: `subject` / `let` / `context`, `:aggregate_failures`.
+10. Секреты не коммитить (`.env`, `config/master.key`, `.kamal/secrets`).
+11. Conventional commits: feat / fix / chore / docs / refactor / test.
+
+Перед правками сверяйся с `CONVENTIONS.md` и `ANTI_PATTERNS.md`.
+
+---
+
+## Важные файлы
+
+```
+Gemfile
+config/routes.rb
+config/deploy.yml
+db/schema.rb
+app/services/base_service.rb
+app/services/dragon_transfer.rb
+app/services/dragon_transfer/client.rb
+app/services/dragon_transfer/error.rb
+app/services/orders/create.rb
+app/services/orders/sync_status.rb
+app/services/orders/apply_webhook.rb
+app/services/webhooks/dragon_transfer/process.rb
+app/models/order.rb
+app/controllers/concerns/api_error_handling.rb
+app/javascript/miniapp.js
+spec/support/partner_api_helpers.rb
+```
