@@ -32,7 +32,7 @@ gem "thruster", require: false
 # Deploy this application anywhere as a Docker container [https://kamal-deploy.org]
 gem "kamal", require: false
 
-gem "faraday", "~> 2.12"
+gem "faraday", "~> 2.15"
 gem "dotenv-rails"
 
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
